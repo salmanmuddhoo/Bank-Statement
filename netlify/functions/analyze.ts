@@ -54,23 +54,29 @@ const handler: Handler = async (event: HandlerEvent, context: HandlerContext) =>
 
     const currentAi = getAiInstance();
 
-    const prompt = `Perform a deep analysis of the following bank statement text. Your primary goal is to extract information so that the opening balance plus total credits minus total debits perfectly matches the closing balance.
+    const prompt = `Perform a deep analysis of the following bank statement text. Your goal is to extract key financial information and a clean, normalized list of transactions.
 
-Extract the following information:
-1.  **Statement Period**: The date range of the statement (e.g., "January 2024", "Jan 1, 2024 - Jan 31, 2024").
-2.  **Opening Balance**: The starting balance of the statement period.
-3.  **Closing Balance**: The ending balance of the statement period.
-4.  **Transactions**: Extract a list of ALL monetary transactions that affect the balance. Do NOT ignore any transaction.
-    - If a transaction is clearly associated with a person or company, extract their name as 'clientName'.
-    - For transactions without a specific person or company name (e.g., bank fees, interest, service charges), use the actual transaction description or narration text from the statement itself as the 'clientName'. For example, if the statement line reads "MONTHLY ACCOUNT FEE", the clientName should be "MONTHLY ACCOUNT FEE".
-    - For each transaction, extract the date (YYYY-MM-DD), the amount, and classify it as 'credit' or 'debit'.
+Your tasks are:
+1.  **Extract Key Information**:
+    *   **Statement Period**: The date range of the statement.
+    *   **Opening Balance**: The starting balance.
+    *   **Closing Balance**: The ending balance. Ensure this is the final figure listed.
+
+2.  **Extract and Normalize Transactions**:
+    *   Extract a list of ALL monetary transactions that affect the balance.
+    *   For each transaction, identify the associated person or company name ('clientName').
+    *   **CRITICAL**: Review all extracted client names. If you find variations of the same entity (e.g., "John Smith", "Mr J. Smith", "SMITH JOHN"), consolidate them under a single, standardized name (e.g., "John Smith"). Use this standardized name for all transactions related to that entity.
+    *   For generic transactions (e.g., bank fees, interest), use the transaction description as the 'clientName'. Do not group these with personal names.
+    *   For each transaction, provide the date (YYYY-MM-DD), amount, and type ('credit' or 'debit').
+
+The final list of transactions must be complete to ensure that: Opening Balance + Total Credits - Total Debits = Closing Balance.
 
 Statement:
 ---
 ${statementText}
 ---
 
-Return the data as a JSON object that adheres to the provided schema. Ensure the transaction list is complete to guarantee the balances match. If a value isn't found, use 0 for balances and an empty string for the period.`;
+Return a single JSON object adhering to the provided schema. The client names in the transaction list must be the final, standardized versions. If a value isn't found, use 0 for balances and an empty string for the period.`;
 
     const response: GenerateContentResponse = await currentAi.models.generateContent({
       model: MODEL_NAME,

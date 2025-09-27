@@ -6,7 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { ClientTransaction, ClientSummary, ClientMonthlyTrend, AnalysisResult } from './types';
-import { analyzeStatement, normalizeClientNames } from './services/geminiService';
+import { analyzeStatement } from './services/geminiService';
 import { Download, FileText, Loader2, UploadCloud, X, ArrowUpDown, BarChart, CheckCircle2, XCircle, Search } from 'lucide-react';
 
 // Configure the PDF.js worker source from a CDN
@@ -90,7 +90,7 @@ const App: React.FC = () => {
     setSearchQuery(''); // Reset search on new analysis
 
     try {
-      // Step 1: Extract transactions and balances
+      // Step 1: Extract and normalize transactions in one call
       setLoadingMessage('Analyzing statement...');
       const result = await analyzeStatement(statementText);
       setAnalysisResult(result);
@@ -101,18 +101,8 @@ const App: React.FC = () => {
         return;
       }
 
-      // Step 2: Normalize client names
-      setLoadingMessage('Normalizing client names...');
-      const uniqueNames = [...new Set(result.transactions.map(t => t.clientName))];
-      const nameMap = await normalizeClientNames(uniqueNames);
-
-      // Step 3: Apply normalization and process
-      const normalizedTransactions = result.transactions.map(t => ({
-        ...t,
-        clientName: nameMap.get(t.clientName) || t.clientName,
-      }));
-
-      processAnalysis(normalizedTransactions);
+      // Step 2: Process the already-normalized transactions
+      processAnalysis(result.transactions);
 
     } catch (error) {
       if (error instanceof Error) {
