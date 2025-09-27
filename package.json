@@ -1,12 +1,11 @@
 {
   "name": "ai-bank-statement-analyzer",
   "version": "1.0.0",
-  "description": "AI Bank Statement Analyzer with Netlify Functions",
+  "description": "Use Gemini AI to analyze bank statements and extract client loan payments.",
   "scripts": {
     "build": "echo \"No build required\""
   },
   "dependencies": {
-    "@google/genai": "^1.0.1",
-    "@netlify/functions": "^2.7.0"
+    "@google/genai": "^1.0.1"
   }
 }
