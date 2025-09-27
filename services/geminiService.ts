@@ -42,12 +42,13 @@ Your tasks are:
 2.  **Extract, Normalize, and Consolidate Transactions**:
     *   Extract a list of ALL monetary transactions that affect the balance.
     *   For each transaction, identify the associated person or company name ('clientName').
-    *   **CRITICAL - Client Name Consolidation**: This is the most important step. You must intelligently merge variations of the same client name into a single, consistent identifier.
-        *   Be robust against variations in capitalization (e.g., "John Smith" and "JOHN SMITH").
-        *   Handle inclusion/omission of middle names or initials (e.g., "John F. Smith" and "John Smith").
-        *   Recognize different ordering of names (e.g., "Smith John" and "John Smith").
-        *   Account for titles and honorifics (e.g., "Mr Smith", "Mrs. Jane Doe").
-        *   **Example**: A client might appear as "Muhammud Salman", "MUHAMMUD SALMAN MUDDHOO", or "Mr muddhoo salman". All of these should be consolidated under a single name, for example, "Muhammud Salman Muddhoo". Choose the most complete name as the standard.
+    *   **CRITICAL - ADVANCED Client Name Consolidation**: This is the most important task. You must be extremely diligent in merging variations of the same client name into a single, consistent identifier.
+        *   **Step 1: Strip Titles**. Before comparing names, remove common titles and honorifics like "Mr", "Mrs", "Miss", "M/s", "Dr". The final consolidated name should NOT include these titles.
+        *   **Step 2: Normalize**. After stripping titles, ignore case, punctuation, and word order to identify matches.
+        *   **Step 3: Consolidate**. Group clients based on the core name components. Always choose the most complete version of the name as the final identifier.
+        *   **Example 1**: "Mr muhammud Salman Muddhoo" and "Muhammud Salman Muddhoo" are the same person. You must consolidate them under "Muhammud Salman Muddhoo". Note how the title "Mr" is removed from the final name.
+        *   **Example 2**: A client might appear as "Muhammud Salman", "MUHAMMUD SALMAN MUDDHOO", or "Mr muddhoo salman". All of these should be consolidated into a single name: "Muhammud Salman Muddhoo".
+        *   **Example 3**: "J. Doe" and "John Doe" should be consolidated into "John Doe".
     *   For generic transactions (e.g., bank fees, interest), use the transaction description as the 'clientName'. Do not group these with personal names.
     *   For each transaction, provide the date (YYYY-MM-DD), amount, and type ('credit' or 'debit').
 
@@ -80,7 +81,7 @@ Return a single JSON object adhering to the provided schema. The client names in
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  clientName: { type: Type.STRING, description: "The consolidated, standardized name of the client or a descriptive label for the transaction." },
+                  clientName: { type: Type.STRING, description: "The consolidated, standardized name of the client or a descriptive label for the transaction. Titles like 'Mr' or 'Mrs' must be removed." },
                   date: { type: Type.STRING, description: "Transaction date in YYYY-MM-DD format." },
                   amount: { type: Type.NUMBER, description: "Transaction amount." },
                   type: { type: Type.STRING, description: "Type: 'credit' or 'debit'.", enum: ["credit", "debit"] }
