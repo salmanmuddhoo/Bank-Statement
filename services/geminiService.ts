@@ -22,6 +22,7 @@ const safetySettings = [
  * @returns A promise that resolves to the analysis result with normalized transactions.
  */
 export const analyzeStatement = async (statementText: string, apiKey: string): Promise<AnalysisResult> => {
+  console.log("[analyzeStatement] Function called.");
   if (!statementText) {
     throw new Error('Statement text is empty.');
   }
@@ -61,7 +62,10 @@ ${statementText}
 
 Return a single JSON object adhering to the provided schema. The client names in the transaction list must be the final, standardized versions. If a value isn't found, use 0 for balances and an empty string for the period.`;
 
+  console.log("[analyzeStatement] Constructed prompt for Gemini:", { prompt });
+
   try {
+    console.info("[analyzeStatement] Sending request to Gemini API...");
     const response: GenerateContentResponse = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
@@ -96,14 +100,18 @@ Return a single JSON object adhering to the provided schema. The client names in
     });
 
     const jsonStr = response.text.trim();
+    console.info("[analyzeStatement] Received raw JSON response from Gemini:", jsonStr);
+
     if (!jsonStr) {
       throw new Error("Received an empty response from the AI. The statement might not contain recognizable data.");
     }
     
-    return JSON.parse(jsonStr);
+    const parsedResult = JSON.parse(jsonStr);
+    console.info("[analyzeStatement] Parsed analysis result:", parsedResult);
+    return parsedResult;
 
   } catch (error) {
-    console.error("Error calling Gemini API:", error);
+    console.error("[analyzeStatement] Error calling Gemini API:", error);
     const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
     if (errorMessage.includes('API key not valid')) {
         throw new Error('API key not valid. Please check your key and try again.');

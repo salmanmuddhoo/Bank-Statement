@@ -39,9 +39,11 @@ const App: React.FC = () => {
   useEffect(() => {
     const storedApiKey = localStorage.getItem('gemini-api-key');
     if (storedApiKey) {
+      console.log("Found API key in local storage.");
       setApiKey(storedApiKey);
       setTempApiKey(storedApiKey);
     } else {
+      console.log("No API key found, opening modal.");
       setIsApiKeyModalOpen(true);
     }
   }, []);
@@ -51,6 +53,7 @@ const App: React.FC = () => {
       setApiKeyError('API Key cannot be empty.');
       return;
     }
+    console.log("Saving new API key.");
     setApiKey(tempApiKey);
     localStorage.setItem('gemini-api-key', tempApiKey);
     setIsApiKeyModalOpen(false);
@@ -66,6 +69,7 @@ const App: React.FC = () => {
   };
 
   const processAnalysis = (transactions: ClientTransaction[]) => {
+    console.log(`[processAnalysis] Starting with ${transactions.length} transactions.`);
     // 1. Calculate aggregated summary per client
     const summaryMap: { [key: string]: ClientSummary } = {};
     for (const t of transactions) {
@@ -81,7 +85,9 @@ const App: React.FC = () => {
       }
       summaryMap[t.clientName].netTotal = summaryMap[t.clientName].totalCredit - summaryMap[t.clientName].totalDebit;
     }
-    setClientSummaries(Object.values(summaryMap).sort((a, b) => a.clientName.localeCompare(b.clientName)));
+    const summaries = Object.values(summaryMap).sort((a, b) => a.clientName.localeCompare(b.clientName));
+    console.log('[processAnalysis] Calculated client summaries:', summaries);
+    setClientSummaries(summaries);
 
     // 2. Calculate monthly trends
     const trendMap: { [key: string]: ClientMonthlyTrend } = {};
@@ -99,17 +105,22 @@ const App: React.FC = () => {
       }
       trendMap[key].netChange = trendMap[key].totalCredit - trendMap[key].totalDebit;
     }
-    setMonthlyTrends(Object.values(trendMap));
+    const trends = Object.values(trendMap);
+    console.log('[processAnalysis] Calculated monthly trends:', trends);
+    setMonthlyTrends(trends);
   };
 
   const handleAnalyze = async () => {
+    console.log("[handleAnalyze] Starting analysis...");
     if (!statementText.trim()) {
       setError('Please provide a bank statement.');
+      console.warn("[handleAnalyze] Aborted: Statement text is empty.");
       return;
     }
     if (!apiKey) {
       setError('Gemini API Key is not set. Please set it in the settings.');
       setIsApiKeyModalOpen(true);
+      console.warn("[handleAnalyze] Aborted: API key is not set.");
       return;
     }
 
@@ -123,23 +134,29 @@ const App: React.FC = () => {
     try {
       // Step 1: AI analysis
       setLoadingMessage('Analyzing & Normalizing...');
+      console.info("[handleAnalyze] Calling analyzeStatement service...");
       const result = await analyzeStatement(statementText, apiKey);
+      console.info("[handleAnalyze] Received analysis result from service:", result);
       setAnalysisResult(result);
 
       if (result.transactions.length === 0) {
         setError("No client transactions were identified in the provided text.");
         setIsLoading(false);
         setLoadingMessage('Analyzing...'); // Reset
+        console.warn("[handleAnalyze] Analysis returned 0 transactions.");
         return;
       }
       
       // Step 2: Client-side processing
       setLoadingMessage('Generating summaries...');
+      console.info("[handleAnalyze] Starting client-side processing of results...");
       // A small delay to make the transition visible, as this part is fast.
       await new Promise(resolve => setTimeout(resolve, 500));
       processAnalysis(result.transactions);
+      console.log("[handleAnalyze] Analysis complete.");
 
     } catch (error) {
+      console.error("[handleAnalyze] An error occurred during analysis:", error);
       if (error instanceof Error) {
         if (error.message.includes('API key not valid')) {
             setError('Your Gemini API key is invalid. Please correct it.');
@@ -160,6 +177,7 @@ const App: React.FC = () => {
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      console.log(`[handleFileChange] File selected: ${file.name}`);
       setIsParsingPdf(true);
       setFileName(file.name);
       setStatementText('');
@@ -172,6 +190,7 @@ const App: React.FC = () => {
         const reader = new FileReader();
         reader.onload = async (e) => {
           try {
+            console.info("[handleFileChange] PDF file read, starting parsing...");
             const typedArray = new Uint8Array(e.target?.result as ArrayBuffer);
             const pdf = await pdfjsLib.getDocument(typedArray).promise;
             let fullText = '';
@@ -181,8 +200,10 @@ const App: React.FC = () => {
               const pageText = textContent.items.map(item => (item as PdfTextItem).str).join(' ');
               fullText += pageText + '\n\n';
             }
+            console.info(`[handleFileChange] PDF parsing complete. Extracted text length: ${fullText.length}`);
             setStatementText(fullText);
           } catch (pdfError) {
+            console.error("[handleFileChange] Error parsing PDF:", pdfError);
             setError('Failed to parse the PDF file. It might be corrupted or in an unsupported format.');
           } finally {
             setIsParsingPdf(false);
@@ -190,6 +211,7 @@ const App: React.FC = () => {
         };
         reader.readAsArrayBuffer(file);
       } catch (err) {
+        console.error("[handleFileChange] Error reading file:", err);
         setError('Failed to read the file.');
         setIsParsingPdf(false);
       }
@@ -198,6 +220,7 @@ const App: React.FC = () => {
   };
 
   const clearFile = () => {
+    console.log("[clearFile] Clearing file and all analysis data.");
     setFileName(null);
     setStatementText('');
     setClientSummaries([]);
@@ -209,6 +232,7 @@ const App: React.FC = () => {
 
   const exportToCSV = (data: any[], filename: string) => {
     if (data.length === 0) return;
+    console.log(`[exportToCSV] Exporting ${data.length} rows to ${filename}`);
 
     const formatCSVCell = (value: any): string => {
       if (value === null || value === undefined) {
@@ -271,6 +295,7 @@ const App: React.FC = () => {
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'ascending') {
       direction = 'descending';
     }
+    console.log(`[requestSort] Sorting trends table by ${key} in ${direction} order.`);
     setSortConfig({ key, direction });
   };
 
@@ -326,11 +351,13 @@ const App: React.FC = () => {
     const calculatedClosing = analysisResult.openingBalance + fullGrandTotals.totalCredit - fullGrandTotals.totalDebit;
     const difference = calculatedClosing - analysisResult.closingBalance;
     const isMatch = Math.abs(difference) < 0.01; // Using a tolerance for floating point comparison
-    return {
+    const verificationResult = {
       calculatedClosing,
       difference,
       isMatch,
     };
+    console.log("[balanceVerification] Balance verification result:", verificationResult);
+    return verificationResult;
   }, [analysisResult, fullGrandTotals]);
 
   return (
