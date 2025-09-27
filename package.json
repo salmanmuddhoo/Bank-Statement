@@ -2,6 +2,9 @@
   "name": "ai-bank-statement-analyzer",
   "version": "1.0.0",
   "description": "AI Bank Statement Analyzer with Netlify Functions",
+  "scripts": {
+    "build": "echo \"No build required\""
+  },
   "dependencies": {
     "@google/genai": "^1.0.1",
     "@netlify/functions": "^2.7.0"
