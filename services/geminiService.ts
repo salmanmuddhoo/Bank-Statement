@@ -6,13 +6,6 @@
 import { GoogleGenAI, GenerateContentResponse, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { AnalysisResult } from '../types';
 
-const API_KEY = process.env.API_KEY;
-
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set. This app cannot function without it.");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
 const MODEL_NAME = "gemini-2.5-flash";
 
 const safetySettings = [
@@ -25,12 +18,18 @@ const safetySettings = [
 /**
  * Sends the bank statement text to the Gemini API for analysis and normalization.
  * @param statementText The raw text from the bank statement.
+ * @param apiKey The user-provided Gemini API key.
  * @returns A promise that resolves to the analysis result with normalized transactions.
  */
-export const analyzeStatement = async (statementText: string): Promise<AnalysisResult> => {
+export const analyzeStatement = async (statementText: string, apiKey: string): Promise<AnalysisResult> => {
   if (!statementText) {
     throw new Error('Statement text is empty.');
   }
+  if (!apiKey) {
+    throw new Error('Gemini API Key is missing. Please provide a valid key.');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
 
   const prompt = `Perform a deep analysis of the following bank statement text. Your goal is to extract key financial information and a clean, normalized list of transactions.
 
@@ -100,6 +99,9 @@ Return a single JSON object adhering to the provided schema. The client names in
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
+    if (errorMessage.includes('API key not valid')) {
+        throw new Error('API key not valid. Please check your key and try again.');
+    }
     if (errorMessage.includes('json') || errorMessage.includes('JSON')) {
         throw new Error('The AI returned an invalid format. Please try again or adjust the statement text.');
     }

@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { ClientTransaction, ClientSummary, ClientMonthlyTrend, AnalysisResult } from './types';
 import { analyzeStatement } from './services/geminiService';
-import { Download, FileText, Loader2, UploadCloud, X, ArrowUpDown, BarChart, CheckCircle2, XCircle, Search } from 'lucide-react';
+import { Download, FileText, Loader2, UploadCloud, X, ArrowUpDown, BarChart, CheckCircle2, XCircle, Search, KeyRound, Settings } from 'lucide-react';
 
 // Configure the PDF.js worker source from a CDN
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.5.136/build/pdf.worker.mjs`;
@@ -19,6 +19,11 @@ interface PdfTextItem {
 type SortKey = keyof ClientMonthlyTrend;
 
 const App: React.FC = () => {
+  const [apiKey, setApiKey] = useState<string>('');
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
+  const [tempApiKey, setTempApiKey] = useState<string>('');
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+
   const [statementText, setStatementText] = useState<string>('');
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [clientSummaries, setClientSummaries] = useState<ClientSummary[]>([]);
@@ -30,6 +35,27 @@ const App: React.FC = () => {
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    const storedApiKey = localStorage.getItem('gemini-api-key');
+    if (storedApiKey) {
+      setApiKey(storedApiKey);
+      setTempApiKey(storedApiKey);
+    } else {
+      setIsApiKeyModalOpen(true);
+    }
+  }, []);
+
+  const handleSaveApiKey = () => {
+    if (!tempApiKey.trim()) {
+      setApiKeyError('API Key cannot be empty.');
+      return;
+    }
+    setApiKey(tempApiKey);
+    localStorage.setItem('gemini-api-key', tempApiKey);
+    setIsApiKeyModalOpen(false);
+    setApiKeyError(null);
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-MU', {
@@ -81,6 +107,11 @@ const App: React.FC = () => {
       setError('Please provide a bank statement.');
       return;
     }
+    if (!apiKey) {
+      setError('Gemini API Key is not set. Please set it in the settings.');
+      setIsApiKeyModalOpen(true);
+      return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -92,7 +123,7 @@ const App: React.FC = () => {
     try {
       // Step 1: Extract and normalize transactions in one call
       setLoadingMessage('Analyzing statement...');
-      const result = await analyzeStatement(statementText);
+      const result = await analyzeStatement(statementText, apiKey);
       setAnalysisResult(result);
 
       if (result.transactions.length === 0) {
@@ -106,7 +137,13 @@ const App: React.FC = () => {
 
     } catch (error) {
       if (error instanceof Error) {
-        setError(error.message);
+        if (error.message.includes('API key not valid')) {
+            setError('Your Gemini API key is invalid. Please correct it.');
+            setApiKeyError('Your Gemini API key is invalid. Please correct it.');
+            setIsApiKeyModalOpen(true);
+        } else {
+            setError(error.message);
+        }
       } else {
         setError('An unknown error occurred during analysis.');
       }
@@ -167,12 +204,31 @@ const App: React.FC = () => {
 
   const exportToCSV = (data: any[], filename: string) => {
     if (data.length === 0) return;
+
+    const formatCSVCell = (value: any): string => {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      let strValue = String(value);
+      // If the value contains a comma, a double quote, or a newline, it needs to be enclosed in double quotes.
+      if (strValue.search(/("|,|\n|\r)/g) >= 0) {
+        // Escape double quotes by doubling them.
+        strValue = strValue.replace(/"/g, '""');
+        return `"${strValue}"`;
+      }
+      return strValue;
+    };
+
     const headers = Object.keys(data[0]);
     const csvContent = [
       headers.join(','),
-      ...data.map(row => headers.map(header => JSON.stringify(row[header])).join(','))
+      ...data.map(row =>
+        headers.map(header => formatCSVCell(row[header])).join(',')
+      )
     ].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+
+    // Add BOM for better Excel compatibility
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     if (link.href) {
       URL.revokeObjectURL(link.href);
@@ -274,13 +330,78 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-200 flex flex-col items-center p-4 sm:p-6 lg:p-8">
+      {isApiKeyModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg shadow-xl p-8 max-w-lg w-full">
+            <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+              <KeyRound className="w-6 h-6 text-cyan-400" />
+              Gemini API Key Required
+            </h2>
+            <p className="text-gray-400 mb-6">
+              Please provide your Gemini API key to use this application. Your key is stored locally in your browser and is not sent to any server.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="api-key-input" className="block text-sm font-medium text-gray-300">
+                  Your API Key
+                </label>
+                <input
+                  id="api-key-input"
+                  type="password"
+                  value={tempApiKey}
+                  onChange={(e) => setTempApiKey(e.target.value)}
+                  placeholder="Enter your Gemini API Key"
+                  className="mt-1 w-full bg-gray-900 text-gray-300 border border-gray-700 rounded-md p-3 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition duration-200"
+                />
+              </div>
+              {apiKeyError && <p className="text-red-400 text-sm">{apiKeyError}</p>}
+              <p className="text-sm text-gray-500">
+                Don't have a key?{' '}
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-cyan-400 hover:text-cyan-300 underline"
+                >
+                  Get one from Google AI Studio
+                </a>
+              </p>
+            </div>
+            <div className="mt-8 flex justify-end gap-4">
+              {apiKey && (
+                <button
+                  onClick={() => { setIsApiKeyModalOpen(false); setApiKeyError(null); setTempApiKey(apiKey); }}
+                  className="px-4 py-2 text-sm font-medium rounded-md text-gray-300 bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 focus:ring-offset-gray-800"
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                onClick={handleSaveApiKey}
+                className="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 focus:ring-offset-gray-800"
+              >
+                Save & Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-7xl">
-        <header className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white flex items-center justify-center gap-3">
-            <FileText className="w-10 h-10 text-cyan-400" />
-            <span>AI Bank Statement Analyzer</span>
-          </h1>
-          <p className="text-gray-400 mt-2">Upload or paste a bank statement to analyze client payment trends.</p>
+        <header className="flex justify-between items-center text-center mb-8">
+            <div className="flex-1"></div> {/* Spacer */}
+            <div className="flex-1">
+                <h1 className="text-4xl font-bold text-white flex items-center justify-center gap-3">
+                    <FileText className="w-10 h-10 text-cyan-400" />
+                    <span>AI Bank Statement Analyzer</span>
+                </h1>
+                <p className="text-gray-400 mt-2">Upload or paste a bank statement to analyze client payment trends.</p>
+            </div>
+            <div className="flex-1 flex justify-end">
+                <button onClick={() => setIsApiKeyModalOpen(true)} className="p-2 rounded-full hover:bg-gray-700 transition-colors" aria-label="Settings">
+                    <Settings className="w-6 h-6 text-gray-400" />
+                </button>
+            </div>
         </header>
 
         <main className="space-y-8">
@@ -328,7 +449,7 @@ const App: React.FC = () => {
             <div className="mt-6 text-center">
               <button
                 onClick={handleAnalyze}
-                disabled={isLoading || isParsingPdf || !statementText.trim()}
+                disabled={isLoading || isParsingPdf || !statementText.trim() || !apiKey}
                 className="w-full max-w-xs inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 focus:ring-offset-gray-800 transition-colors"
               >
                 {isLoading ? (
