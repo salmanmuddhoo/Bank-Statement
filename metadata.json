@@ -1,0 +1,6 @@
+{
+  "name": "Loan Payment Tracker",
+  "description": "Use Gemini AI to analyze bank statements and extract client loan payments.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
