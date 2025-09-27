@@ -31,7 +31,7 @@ export const analyzeStatement = async (statementText: string, apiKey: string): P
 
   const ai = new GoogleGenAI({ apiKey });
 
-  const prompt = `Perform a deep analysis of the following bank statement text. Your goal is to extract key financial information and a clean, normalized list of transactions.
+  const prompt = `Perform a deep analysis of the following bank statement text. Your goal is to extract key financial information and a clean, normalized list of transactions with consolidated client names.
 
 Your tasks are:
 1.  **Extract Key Information**:
@@ -39,10 +39,15 @@ Your tasks are:
     *   **Opening Balance**: The starting balance.
     *   **Closing Balance**: The ending balance. Ensure this is the final figure listed.
 
-2.  **Extract and Normalize Transactions**:
+2.  **Extract, Normalize, and Consolidate Transactions**:
     *   Extract a list of ALL monetary transactions that affect the balance.
     *   For each transaction, identify the associated person or company name ('clientName').
-    *   **CRITICAL**: Review all extracted client names. If you find variations of the same entity (e.g., "John Smith", "Mr J. Smith", "SMITH JOHN"), consolidate them under a single, standardized name (e.g., "John Smith"). Use this standardized name for all transactions related to that entity.
+    *   **CRITICAL - Client Name Consolidation**: This is the most important step. You must intelligently merge variations of the same client name into a single, consistent identifier.
+        *   Be robust against variations in capitalization (e.g., "John Smith" and "JOHN SMITH").
+        *   Handle inclusion/omission of middle names or initials (e.g., "John F. Smith" and "John Smith").
+        *   Recognize different ordering of names (e.g., "Smith John" and "John Smith").
+        *   Account for titles and honorifics (e.g., "Mr Smith", "Mrs. Jane Doe").
+        *   **Example**: A client might appear as "Muhammud Salman", "MUHAMMUD SALMAN MUDDHOO", or "Mr muddhoo salman". All of these should be consolidated under a single name, for example, "Muhammud Salman Muddhoo". Choose the most complete name as the standard.
     *   For generic transactions (e.g., bank fees, interest), use the transaction description as the 'clientName'. Do not group these with personal names.
     *   For each transaction, provide the date (YYYY-MM-DD), amount, and type ('credit' or 'debit').
 
@@ -75,7 +80,7 @@ Return a single JSON object adhering to the provided schema. The client names in
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  clientName: { type: Type.STRING, description: "The name of the client or a descriptive label for the transaction." },
+                  clientName: { type: Type.STRING, description: "The consolidated, standardized name of the client or a descriptive label for the transaction." },
                   date: { type: Type.STRING, description: "Transaction date in YYYY-MM-DD format." },
                   amount: { type: Type.NUMBER, description: "Transaction amount." },
                   type: { type: Type.STRING, description: "Type: 'credit' or 'debit'.", enum: ["credit", "debit"] }

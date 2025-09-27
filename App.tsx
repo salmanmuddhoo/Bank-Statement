@@ -121,18 +121,22 @@ const App: React.FC = () => {
     setSearchQuery(''); // Reset search on new analysis
 
     try {
-      // Step 1: Extract and normalize transactions in one call
-      setLoadingMessage('Analyzing statement...');
+      // Step 1: AI analysis
+      setLoadingMessage('Analyzing & Normalizing...');
       const result = await analyzeStatement(statementText, apiKey);
       setAnalysisResult(result);
 
       if (result.transactions.length === 0) {
         setError("No client transactions were identified in the provided text.");
         setIsLoading(false);
+        setLoadingMessage('Analyzing...'); // Reset
         return;
       }
-
-      // Step 2: Process the already-normalized transactions
+      
+      // Step 2: Client-side processing
+      setLoadingMessage('Generating summaries...');
+      // A small delay to make the transition visible, as this part is fast.
+      await new Promise(resolve => setTimeout(resolve, 500));
       processAnalysis(result.transactions);
 
     } catch (error) {
@@ -149,6 +153,7 @@ const App: React.FC = () => {
       }
     } finally {
       setIsLoading(false);
+      setLoadingMessage('Analyzing...'); // Reset for the next run
     }
   };
 
