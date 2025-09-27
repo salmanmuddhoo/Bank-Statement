@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { ClientTransaction, ClientSummary, ClientMonthlyTrend, AnalysisResult } from './types';
 import { analyzeStatement } from './services/geminiService';
@@ -31,10 +31,12 @@ const App: React.FC = () => {
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'ascending' | 'descending' } | null>({ key: 'month', direction: 'descending' });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('Analyzing...');
+  const [streamLog, setStreamLog] = useState<string>('');
   const [isParsingPdf, setIsParsingPdf] = useState<boolean>(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const streamStartedRef = useRef<boolean>(false);
 
   useEffect(() => {
     const storedApiKey = localStorage.getItem('gemini-api-key');
@@ -129,20 +131,29 @@ const App: React.FC = () => {
     setClientSummaries([]);
     setMonthlyTrends([]);
     setAnalysisResult(null);
-    setSearchQuery(''); // Reset search on new analysis
+    setSearchQuery('');
+    setStreamLog('Establishing connection with AI... Waiting for the first token...');
+    streamStartedRef.current = false;
 
     try {
-      // Step 1: AI analysis
+      // Step 1: AI analysis (now streaming)
       setLoadingMessage('Analyzing & Normalizing...');
       console.info("[handleAnalyze] Calling analyzeStatement service...");
-      const result = await analyzeStatement(statementText, apiKey);
-      console.info("[handleAnalyze] Received analysis result from service:", result);
+      const result = await analyzeStatement(statementText, apiKey, (chunk) => {
+        if (!streamStartedRef.current) {
+            setStreamLog(chunk);
+            streamStartedRef.current = true;
+        } else {
+            setStreamLog(prev => prev + chunk);
+        }
+      });
+      console.info("[handleAnalyze] Received final analysis result from service:", result);
       setAnalysisResult(result);
 
       if (result.transactions.length === 0) {
         setError("No client transactions were identified in the provided text.");
         setIsLoading(false);
-        setLoadingMessage('Analyzing...'); // Reset
+        setLoadingMessage('Analyzing...');
         console.warn("[handleAnalyze] Analysis returned 0 transactions.");
         return;
       }
@@ -150,7 +161,6 @@ const App: React.FC = () => {
       // Step 2: Client-side processing
       setLoadingMessage('Generating summaries...');
       console.info("[handleAnalyze] Starting client-side processing of results...");
-      // A small delay to make the transition visible, as this part is fast.
       await new Promise(resolve => setTimeout(resolve, 500));
       processAnalysis(result.transactions);
       console.log("[handleAnalyze] Analysis complete.");
@@ -170,7 +180,7 @@ const App: React.FC = () => {
       }
     } finally {
       setIsLoading(false);
-      setLoadingMessage('Analyzing...'); // Reset for the next run
+      setLoadingMessage('Analyzing...');
     }
   };
 
@@ -186,6 +196,7 @@ const App: React.FC = () => {
       setMonthlyTrends([]);
       setAnalysisResult(null);
       setSearchQuery('');
+      setStreamLog('');
       try {
         const reader = new FileReader();
         reader.onload = async (e) => {
@@ -228,6 +239,7 @@ const App: React.FC = () => {
     setAnalysisResult(null);
     setError(null);
     setSearchQuery('');
+    setStreamLog('');
   };
 
   const exportToCSV = (data: any[], filename: string) => {
@@ -239,9 +251,7 @@ const App: React.FC = () => {
         return '';
       }
       let strValue = String(value);
-      // If the value contains a comma, a double quote, or a newline, it needs to be enclosed in double quotes.
       if (strValue.search(/("|,|\n|\r)/g) >= 0) {
-        // Escape double quotes by doubling them.
         strValue = strValue.replace(/"/g, '""');
         return `"${strValue}"`;
       }
@@ -256,7 +266,6 @@ const App: React.FC = () => {
       )
     ].join('\n');
 
-    // Add BOM for better Excel compatibility
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     if (link.href) {
@@ -332,10 +341,12 @@ const App: React.FC = () => {
   const filteredGrandTotals = useMemo(() => {
     return filteredClientSummaries.reduce((acc, summary) => {
       acc.totalCredit += summary.totalCredit;
+      acc.creditCount += summary.creditCount;
       acc.totalDebit += summary.totalDebit;
+      acc.debitCount += summary.debitCount;
       acc.netTotal += summary.netTotal;
       return acc;
-    }, { totalCredit: 0, totalDebit: 0, netTotal: 0 });
+    }, { totalCredit: 0, creditCount: 0, totalDebit: 0, debitCount: 0, netTotal: 0 });
   }, [filteredClientSummaries]);
 
   const fullGrandTotals = useMemo(() => {
@@ -479,7 +490,7 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="mt-6 text-center">
-              <button
+               <button
                 onClick={handleAnalyze}
                 disabled={isLoading || isParsingPdf || !statementText.trim() || !apiKey}
                 className="w-full max-w-xs inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 focus:ring-offset-gray-800 transition-colors"
@@ -487,7 +498,7 @@ const App: React.FC = () => {
                 {isLoading ? (
                   <>
                     <Loader2 className="w-5 h-5 mr-3 animate-spin" />
-                    {loadingMessage}
+                    Analyzing...
                   </>
                 ) : (
                   <>
@@ -499,8 +510,23 @@ const App: React.FC = () => {
             </div>
             {error && <p className="mt-4 text-center text-red-400">{error}</p>}
           </div>
+          
+          {isLoading && (
+            <div className="bg-gray-800 rounded-lg p-6 shadow-lg">
+              <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
+                <Loader2 className="w-5 h-5 mr-3 animate-spin" />
+                {loadingMessage}
+              </h2>
+              <p className="text-sm text-gray-400 mb-4">
+                The AI is processing the statement. You can see the raw data being generated in real-time below.
+              </p>
+              <pre className="w-full h-48 bg-gray-900 text-cyan-300 text-xs rounded-md p-3 overflow-y-auto whitespace-pre-wrap break-words font-mono">
+                <code>{streamLog}</code>
+              </pre>
+            </div>
+          )}
 
-          {analysisResult && clientSummaries.length > 0 && (
+          {!isLoading && analysisResult && clientSummaries.length > 0 && (
             <div className="space-y-8">
               {/* Statement Overview & Balance Verification */}
               <div className="bg-gray-800 rounded-lg p-6 shadow-lg">
@@ -606,8 +632,10 @@ const App: React.FC = () => {
                               <tr>
                                   <td className="px-6 py-3 text-left text-sm font-bold text-white uppercase">Grand Total (Filtered)</td>
                                   <td className="px-6 py-3 text-right text-sm font-bold text-green-400">{formatCurrency(filteredGrandTotals.totalCredit)}</td>
-                                  <td colSpan={2} className="px-6 py-3 text-right text-sm font-bold text-red-400">{formatCurrency(filteredGrandTotals.totalDebit)}</td>
-                                  <td colSpan={2} className={`px-6 py-3 text-right text-sm font-bold ${filteredGrandTotals.netTotal >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(filteredGrandTotals.netTotal)}</td>
+                                  <td className="px-6 py-3 text-center text-sm font-bold text-gray-300">{filteredGrandTotals.creditCount}</td>
+                                  <td className="px-6 py-3 text-right text-sm font-bold text-red-400">{formatCurrency(filteredGrandTotals.totalDebit)}</td>
+                                  <td className="px-6 py-3 text-center text-sm font-bold text-gray-300">{filteredGrandTotals.debitCount}</td>
+                                  <td className={`px-6 py-3 text-right text-sm font-bold ${filteredGrandTotals.netTotal >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(filteredGrandTotals.netTotal)}</td>
                               </tr>
                           </tfoot>
                         )}
