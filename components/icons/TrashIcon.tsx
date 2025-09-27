@@ -3,4 +3,4 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-// This file is no longer used in the new application and can be deleted.
+// This file is no longer used in the new application.

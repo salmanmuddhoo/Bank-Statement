@@ -29,7 +29,6 @@ const App: React.FC = () => {
   const [isParsingPdf, setIsParsingPdf] = useState<boolean>(false);
   const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [apiKeyError, setApiKeyError] = useState<boolean>(!process.env.API_KEY);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const formatCurrency = (amount: number) => {
@@ -294,13 +293,6 @@ const App: React.FC = () => {
           <p className="text-gray-400 mt-2">Upload or paste a bank statement to analyze client payment trends.</p>
         </header>
 
-        {apiKeyError && (
-          <div className="bg-red-900 border border-red-600 text-red-200 px-4 py-3 rounded-lg relative mb-6" role="alert">
-            <strong className="font-bold">Configuration Error: </strong>
-            <span className="block sm:inline">The Gemini API key is not set. Please configure the `process.env.API_KEY` environment variable.</span>
-          </div>
-        )}
-
         <main className="space-y-8">
           <div className="bg-gray-800 rounded-lg p-6 shadow-lg">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -346,7 +338,7 @@ const App: React.FC = () => {
             <div className="mt-6 text-center">
               <button
                 onClick={handleAnalyze}
-                disabled={isLoading || isParsingPdf || !statementText.trim() || apiKeyError}
+                disabled={isLoading || isParsingPdf || !statementText.trim()}
                 className="w-full max-w-xs inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 focus:ring-offset-gray-800 transition-colors"
               >
                 {isLoading ? (
