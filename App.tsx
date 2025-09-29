@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
-import { AnalysisResult } from './types.ts';
+import { AnalysisResult, ClientTransaction, ClientSummary, ClientMonthlyTrend, ExpectedPayment, PaymentStatus } from './types.ts';
 import { analyzeStatement } from './services/geminiService.ts';
 import ApiKeyModal from './components/ApiKeyModal.tsx';
 import FeedbackModal from './components/FeedbackModal.tsx';
@@ -52,6 +52,16 @@ const App: React.FC = () => {
   });
 
   const [activeView, setActiveView] = useState<'analyzer' | 'dashboard'>('analyzer');
+
+  // State for expected payments file
+  const [paymentsFileName, setPaymentsFileName] = useState<string | null>(null);
+  const [isParsingPaymentsFile, setIsParsingPaymentsFile] = useState<boolean>(false);
+  const [expectedPayments, setExpectedPayments] = useState<ExpectedPayment[] | null>(null);
+
+  // State for derived data
+  const [clientSummaries, setClientSummaries] = useState<ClientSummary[] | null>(null);
+  const [monthlyTrends, setMonthlyTrends] = useState<ClientMonthlyTrend[] | null>(null);
+  const [paymentStatuses, setPaymentStatuses] = useState<PaymentStatus[] | null>(null);
 
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -109,6 +119,85 @@ const App: React.FC = () => {
     console.log("[App] API key saved successfully.");
   };
 
+  const calculateSummariesAndTrends = (transactions: ClientTransaction[]) => {
+    console.log("[App] Recalculating client summaries and monthly trends...");
+    // 1. Calculate aggregated summary per client
+    const summaryMap: { [key: string]: ClientSummary } = {};
+    for (const t of transactions) {
+      if (!summaryMap[t.clientName]) {
+        summaryMap[t.clientName] = { clientName: t.clientName, totalCredit: 0, creditCount: 0, totalDebit: 0, debitCount: 0, netTotal: 0 };
+      }
+      if (t.type === 'credit') {
+        summaryMap[t.clientName].totalCredit += t.amount;
+        summaryMap[t.clientName].creditCount += 1;
+      } else {
+        summaryMap[t.clientName].totalDebit += t.amount;
+        summaryMap[t.clientName].debitCount += 1;
+      }
+      summaryMap[t.clientName].netTotal = summaryMap[t.clientName].totalCredit - summaryMap[t.clientName].totalDebit;
+    }
+    const summaries = Object.values(summaryMap).sort((a, b) => a.clientName.localeCompare(b.clientName));
+
+    // 2. Calculate monthly trends
+    const trendMap: { [key: string]: ClientMonthlyTrend } = {};
+    for (const t of transactions) {
+      if (!t.date || !/^\d{4}-\d{2}-\d{2}$/.test(t.date)) continue; // Skip if date is invalid
+      const month = t.date.substring(0, 7); // YYYY-MM
+      const key = `${t.clientName}|${month}`;
+      if (!trendMap[key]) {
+        trendMap[key] = { clientName: t.clientName, month, totalCredit: 0, totalDebit: 0, netChange: 0 };
+      }
+      if (t.type === 'credit') {
+        trendMap[key].totalCredit += t.amount;
+      } else {
+        trendMap[key].totalDebit += t.amount;
+      }
+      trendMap[key].netChange = trendMap[key].totalCredit - trendMap[key].totalDebit;
+    }
+    const trends = Object.values(trendMap);
+
+    console.log(`[App] Calculation complete. Found ${summaries.length} unique clients and ${trends.length} trend entries.`);
+    return { summaries, trends };
+  }
+
+  const reconcilePayments = (summaries: ClientSummary[], expected: ExpectedPayment[]): PaymentStatus[] => {
+    console.log('[App] Starting payment reconciliation...');
+    const summaryMap = new Map<string, ClientSummary>();
+    summaries.forEach(s => summaryMap.set(s.clientName.toLowerCase().trim(), s));
+  
+    const statuses: PaymentStatus[] = expected.map(exp => {
+      const clientNameLower = exp.clientName.toLowerCase().trim();
+      const summary = summaryMap.get(clientNameLower);
+      const paidAmount = summary?.totalCredit ?? 0;
+      const difference = paidAmount - exp.amount;
+  
+      let status: PaymentStatus['status'];
+      if (paidAmount === 0) {
+        status = 'Not Paid';
+      } else if (Math.abs(difference) < 0.01) { // Tolerance for floating point
+        status = 'Paid';
+      } else if (difference < 0) {
+        status = 'Partial Payment';
+      } else { // difference > 0
+        status = 'Payment Exceeded';
+      }
+      
+      const { clientName, amount, ...extraData } = exp;
+
+      return {
+        ...extraData,
+        clientName: exp.clientName,
+        expectedAmount: exp.amount,
+        paidAmount,
+        status,
+        difference,
+      };
+    });
+    
+    console.log(`[App] Reconciliation complete. Processed ${statuses.length} expected payments.`);
+    return statuses;
+  };
+
   const handleAnalyze = async () => {
     console.log("[App] 'Analyze' button clicked.");
     if (!statementText.trim()) {
@@ -127,6 +216,9 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setAnalysisResult(null);
+    setClientSummaries(null);
+    setMonthlyTrends(null);
+    setPaymentStatuses(null);
     setProgress(null);
     // Switch back to analyzer view on new analysis
     setActiveView('analyzer');
@@ -155,13 +247,17 @@ const App: React.FC = () => {
       if (result.transactions.length === 0) {
         setError("No client transactions were identified in the provided text.");
         console.warn("[App] Analysis complete, but no transactions found.");
-        setAnalysisResult(result); // Set result to show overview even if no transactions
-        setIsLoading(false);
-        setProgress(null);
-        return;
       }
       
       setAnalysisResult(result);
+      const { summaries, trends } = calculateSummariesAndTrends(result.transactions);
+      setClientSummaries(summaries);
+      setMonthlyTrends(trends);
+
+      if (expectedPayments && summaries.length > 0) {
+        const statuses = reconcilePayments(summaries, expectedPayments);
+        setPaymentStatuses(statuses);
+      }
   
       setProgress({ step: 7, total: TOTAL_STEPS, message: 'Generating client summaries & trends...' });
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -196,6 +292,9 @@ const App: React.FC = () => {
       setStatementText('');
       setError(null);
       setAnalysisResult(null);
+      setClientSummaries(null);
+      setMonthlyTrends(null);
+      setPaymentStatuses(null);
       setActiveView('analyzer');
   
       const reader = new FileReader();
@@ -253,6 +352,73 @@ const App: React.FC = () => {
     }
   };
 
+  const handlePaymentsFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      console.log(`[App] Payments file selected: '${file.name}'`);
+      setIsParsingPaymentsFile(true);
+      setPaymentsFileName(file.name);
+      setExpectedPayments(null);
+      setPaymentStatuses(null); // Clear previous statuses
+      setError(null);
+
+      const parsePaymentsExcel = (fileData: ArrayBuffer): ExpectedPayment[] => {
+        const workbook = XLSX.read(fileData, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) throw new Error("The payments Excel file is empty or contains no sheets.");
+        const worksheet = workbook.Sheets[firstSheetName];
+        const data: any[] = XLSX.utils.sheet_to_json(worksheet);
+      
+        if (data.length === 0) return [];
+
+        // Dynamically find header names for flexibility
+        const header = Object.keys(data[0] || {});
+        const nameHeader = header.find(h => h.toLowerCase().includes('name'));
+        const amountHeader = header.find(h => h.toLowerCase().includes('amount'));
+      
+        if (!nameHeader || !amountHeader) {
+          throw new Error("Excel file must contain columns with 'Name' and 'Amount' in their headers.");
+        }
+        
+        return data
+          .map(row => {
+            const clientName = String(row[nameHeader]).trim();
+            const amount = parseFloat(row[amountHeader]);
+            
+            // Create a new object with all other properties
+            const extraData: { [key: string]: any } = {};
+            for (const key in row) {
+              if (key !== nameHeader && key !== amountHeader) {
+                extraData[key] = row[key];
+              }
+            }
+
+            return {
+              ...extraData,
+              clientName,
+              amount,
+            };
+          })
+          .filter(p => p.clientName && !isNaN(p.amount) && p.amount > 0);
+      };
+
+      try {
+        const fileData = await file.arrayBuffer();
+        const payments = parsePaymentsExcel(fileData);
+        setExpectedPayments(payments);
+        console.log(`[App] Successfully parsed payments file. Found ${payments.length} expected payments.`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'An unknown error occurred during parsing.';
+        setError(`Failed to parse payments file. Details: ${message}`);
+        setPaymentsFileName(null);
+        console.error(`[App] Failed to parse payments file '${file.name}'. Error:`, err);
+      } finally {
+        setIsParsingPaymentsFile(false);
+      }
+      event.target.value = ''; // Reset file input
+    }
+  }
+
   const clearFile = () => {
     console.log("[App] Clearing uploaded file and statement text.");
     setFileName(null);
@@ -260,6 +426,18 @@ const App: React.FC = () => {
     setAnalysisResult(null);
     setError(null);
     setActiveView('analyzer');
+    setClientSummaries(null);
+    setMonthlyTrends(null);
+    setPaymentStatuses(null);
+    // Clearing statement should also clear payments file, as it depends on the statement
+    clearPaymentsFile();
+  };
+
+  const clearPaymentsFile = () => {
+    console.log("[App] Clearing payments file.");
+    setPaymentsFileName(null);
+    setExpectedPayments(null);
+    setPaymentStatuses(null);
   };
 
   const handleFeedbackFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -334,14 +512,20 @@ const App: React.FC = () => {
                 handleAnalyze={handleAnalyze}
                 isLoading={isLoading}
                 apiKey={apiKey}
+                paymentsFileName={paymentsFileName}
+                isParsingPaymentsFile={isParsingPaymentsFile}
+                handlePaymentsFileChange={handlePaymentsFileChange}
+                clearPaymentsFile={clearPaymentsFile}
               />
               {error && <p className="mt-4 text-center text-red-600 dark:text-red-400">{error}</p>}
 
               {isLoading && <AnalysisProgress progress={progress} />}
 
-              {!isLoading && analysisResult && (
+              {!isLoading && analysisResult && clientSummaries && monthlyTrends && (
                 <ResultsDisplay
                   analysisResult={analysisResult}
+                  clientSummaries={clientSummaries}
+                  monthlyTrends={monthlyTrends}
                   onOpenFeedbackModal={(data) => {
                     console.log("[App] Opening feedback modal from ResultsDisplay.");
                     setFeedbackForm(data);
@@ -353,7 +537,7 @@ const App: React.FC = () => {
           )}
           
           {activeView === 'dashboard' && (
-            <DashboardView analysisResult={analysisResult} />
+            <DashboardView analysisResult={analysisResult} paymentStatuses={paymentStatuses} />
           )}
         </main>
       </div>

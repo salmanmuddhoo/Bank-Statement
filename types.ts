@@ -33,3 +33,18 @@ export interface AnalysisResult {
   closingBalance: number;
   statementPeriod: string;
 }
+
+export interface ExpectedPayment {
+  clientName: string;
+  amount: number;
+  [key: string]: any; // To allow for additional columns from the Excel file
+}
+
+export interface PaymentStatus {
+  clientName:string;
+  expectedAmount: number;
+  paidAmount: number;
+  status: 'Paid' | 'Not Paid' | 'Partial Payment' | 'Payment Exceeded';
+  difference: number;
+  [key: string]: any; // To allow for additional data from expected payments
+}

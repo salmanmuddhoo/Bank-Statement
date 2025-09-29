@@ -4,7 +4,7 @@
 */
 import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { AnalysisResult, ClientTransaction, ClientSummary, ClientMonthlyTrend } from '../types.ts';
+import { AnalysisResult, ClientSummary, ClientMonthlyTrend } from '../types.ts';
 import StatementOverview from './StatementOverview.tsx';
 import ClientSummaryTable from './ClientSummaryTable.tsx';
 import MonthlyTrendsTable from './MonthlyTrendsTable.tsx';
@@ -14,6 +14,8 @@ type SortKey = keyof ClientMonthlyTrend;
 
 interface ResultsDisplayProps {
   analysisResult: AnalysisResult;
+  clientSummaries: ClientSummary[];
+  monthlyTrends: ClientMonthlyTrend[];
   onOpenFeedbackModal: (data: any) => void;
 }
 
@@ -25,7 +27,12 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
-const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ analysisResult, onOpenFeedbackModal }) => {
+const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ 
+  analysisResult, 
+  clientSummaries, 
+  monthlyTrends, 
+  onOpenFeedbackModal 
+}) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'ascending' | 'descending' } | null>({ key: 'month', direction: 'descending' });
 
@@ -44,48 +51,6 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ analysisResult, onOpenF
       console.log(`[ResultsDisplay] Sort config cleared.`);
     }
   }, [sortConfig]);
-
-  const { clientSummaries, monthlyTrends } = useMemo(() => {
-    console.log("[ResultsDisplay] Recalculating client summaries and monthly trends...");
-    const transactions = analysisResult.transactions;
-    // 1. Calculate aggregated summary per client
-    const summaryMap: { [key: string]: ClientSummary } = {};
-    for (const t of transactions) {
-      if (!summaryMap[t.clientName]) {
-        summaryMap[t.clientName] = { clientName: t.clientName, totalCredit: 0, creditCount: 0, totalDebit: 0, debitCount: 0, netTotal: 0 };
-      }
-      if (t.type === 'credit') {
-        summaryMap[t.clientName].totalCredit += t.amount;
-        summaryMap[t.clientName].creditCount += 1;
-      } else {
-        summaryMap[t.clientName].totalDebit += t.amount;
-        summaryMap[t.clientName].debitCount += 1;
-      }
-      summaryMap[t.clientName].netTotal = summaryMap[t.clientName].totalCredit - summaryMap[t.clientName].totalDebit;
-    }
-    const summaries = Object.values(summaryMap).sort((a, b) => a.clientName.localeCompare(b.clientName));
-
-    // 2. Calculate monthly trends
-    const trendMap: { [key: string]: ClientMonthlyTrend } = {};
-    for (const t of transactions) {
-      if (!t.date || !/^\d{4}-\d{2}-\d{2}$/.test(t.date)) continue; // Skip if date is invalid
-      const month = t.date.substring(0, 7); // YYYY-MM
-      const key = `${t.clientName}|${month}`;
-      if (!trendMap[key]) {
-        trendMap[key] = { clientName: t.clientName, month, totalCredit: 0, totalDebit: 0, netChange: 0 };
-      }
-      if (t.type === 'credit') {
-        trendMap[key].totalCredit += t.amount;
-      } else {
-        trendMap[key].totalDebit += t.amount;
-      }
-      trendMap[key].netChange = trendMap[key].totalCredit - trendMap[key].totalDebit;
-    }
-    const trends = Object.values(trendMap);
-
-    console.log(`[ResultsDisplay] Calculation complete. Found ${summaries.length} unique clients and ${trends.length} trend entries.`);
-    return { clientSummaries: summaries, monthlyTrends: trends };
-  }, [analysisResult]);
 
   const filteredClientSummaries = useMemo(() => {
     if (!searchQuery) return clientSummaries;

@@ -178,3 +178,19 @@ export const Moon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
         <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
     </Icon>
 );
+
+export const AlertCircle: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </Icon>
+);
+  
+export const PlusCircle: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="16" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+    </Icon>
+);

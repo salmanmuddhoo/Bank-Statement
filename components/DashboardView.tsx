@@ -2,12 +2,14 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import React, { useMemo, useEffect } from 'react';
-import { AnalysisResult, ClientSummary } from '../types.ts';
-import { BarChart2, ArrowUpRight, ArrowDownLeft, Users, LayoutDashboard } from './Icons.tsx';
+import React, { useMemo, useEffect, useState } from 'react';
+import { AnalysisResult, ClientSummary, PaymentStatus } from '../types.ts';
+import { BarChart2, ArrowUpRight, ArrowDownLeft, Users, LayoutDashboard, CheckCircle2, XCircle, AlertCircle, PlusCircle } from './Icons.tsx';
+import PaymentStatusTable from './PaymentStatusTable.tsx';
 
 interface DashboardViewProps {
   analysisResult: AnalysisResult | null;
+  paymentStatuses: PaymentStatus[] | null;
 }
 
 const formatCurrency = (amount: number) => {
@@ -28,11 +30,61 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.Re
     </div>
 );
 
-const DashboardView: React.FC<DashboardViewProps> = ({ analysisResult }) => {
+const StatusFilterCard: React.FC<{
+    title: string;
+    count: number;
+    icon: React.ReactNode;
+    isActive: boolean;
+    onClick: () => void;
+    activeClasses: string;
+}> = ({ title, count, icon, isActive, onClick, activeClasses }) => (
+    <button
+        onClick={onClick}
+        className={`p-4 rounded-xl text-left w-full transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-slate-900 ${
+            isActive
+                ? `${activeClasses}`
+                : 'bg-slate-100 dark:bg-slate-800/40 hover:bg-slate-200 dark:hover:bg-slate-800 border-2 border-transparent'
+        }`}
+    >
+        <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{title}</p>
+            {icon}
+        </div>
+        <p className="text-3xl font-bold text-slate-900 dark:text-slate-100 font-mono mt-1">{count}</p>
+    </button>
+);
+
+
+const DashboardView: React.FC<DashboardViewProps> = ({ analysisResult, paymentStatuses }) => {
     
+    const [statusFilter, setStatusFilter] = useState<PaymentStatus['status'] | 'All'>('All');
+
     useEffect(() => {
         console.log("[DashboardView] Component mounted or analysisResult updated.");
     }, [analysisResult]);
+
+    // Reset filter when data changes
+    useEffect(() => {
+        setStatusFilter('All');
+    }, [paymentStatuses]);
+
+    const statusCounts = useMemo(() => {
+        if (!paymentStatuses) return { paid: 0, notPaid: 0, partial: 0, exceeded: 0, total: 0 };
+        return paymentStatuses.reduce((acc, status) => {
+            if (status.status === 'Paid') acc.paid++;
+            else if (status.status === 'Not Paid') acc.notPaid++;
+            else if (status.status === 'Partial Payment') acc.partial++;
+            else if (status.status === 'Payment Exceeded') acc.exceeded++;
+            acc.total++;
+            return acc;
+        }, { paid: 0, notPaid: 0, partial: 0, exceeded: 0, total: 0 });
+    }, [paymentStatuses]);
+
+    const filteredPaymentStatuses = useMemo(() => {
+        if (!paymentStatuses) return null;
+        if (statusFilter === 'All') return paymentStatuses;
+        return paymentStatuses.filter(s => s.status === statusFilter);
+    }, [paymentStatuses, statusFilter]);
 
     const dashboardData = useMemo(() => {
         if (!analysisResult) return null;
@@ -127,6 +179,21 @@ const DashboardView: React.FC<DashboardViewProps> = ({ analysisResult }) => {
 
     return (
         <div className="space-y-8">
+            {/* Payment Status Section */}
+            {paymentStatuses && paymentStatuses.length > 0 && (
+                <div className="space-y-6">
+                    {/* Status Filter Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                        <StatusFilterCard title="Total" count={statusCounts.total} icon={<Users className="w-6 h-6 text-slate-500 dark:text-slate-400" />} isActive={statusFilter === 'All'} onClick={() => setStatusFilter('All')} activeClasses="bg-slate-500/20 border-slate-500 dark:bg-slate-400/20 dark:border-slate-400 focus:ring-slate-500" />
+                        <StatusFilterCard title="Paid" count={statusCounts.paid} icon={<CheckCircle2 className="w-6 h-6 text-green-500 dark:text-green-400" />} isActive={statusFilter === 'Paid'} onClick={() => setStatusFilter('Paid')} activeClasses="bg-green-500/20 border-green-500 dark:bg-green-500/20 dark:border-green-500 focus:ring-green-500" />
+                        <StatusFilterCard title="Partial Payment" count={statusCounts.partial} icon={<AlertCircle className="w-6 h-6 text-yellow-500 dark:text-yellow-400" />} isActive={statusFilter === 'Partial Payment'} onClick={() => setStatusFilter('Partial Payment')} activeClasses="bg-yellow-500/20 border-yellow-500 dark:bg-yellow-500/20 dark:border-yellow-500 focus:ring-yellow-500" />
+                        <StatusFilterCard title="Payment Exceeded" count={statusCounts.exceeded} icon={<PlusCircle className="w-6 h-6 text-sky-500 dark:text-sky-400" />} isActive={statusFilter === 'Payment Exceeded'} onClick={() => setStatusFilter('Payment Exceeded')} activeClasses="bg-sky-500/20 border-sky-500 dark:bg-sky-500/20 dark:border-sky-500 focus:ring-sky-500" />
+                        <StatusFilterCard title="Not Paid" count={statusCounts.notPaid} icon={<XCircle className="w-6 h-6 text-red-500 dark:text-red-400" />} isActive={statusFilter === 'Not Paid'} onClick={() => setStatusFilter('Not Paid')} activeClasses="bg-red-500/20 border-red-500 dark:bg-red-500/20 dark:border-red-500 focus:ring-red-500" />
+                    </div>
+                    {filteredPaymentStatuses && <PaymentStatusTable statuses={filteredPaymentStatuses} activeFilter={statusFilter} />}
+                </div>
+            )}
+
             {/* Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard title="Total Credits" value={formatCurrency(dashboardData.totalCreditAmount)} icon={<ArrowUpRight className="w-6 h-6 text-green-500 dark:text-green-400" />} />
