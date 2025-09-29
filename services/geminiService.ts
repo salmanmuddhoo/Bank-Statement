@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-import { GoogleGenAI, GenerateContentResponse, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
-import { AnalysisResult } from '../types';
+import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
+import { AnalysisResult } from '../types.ts';
 
 const MODEL_NAME = "gemini-2.5-flash";
 
@@ -15,18 +15,61 @@ const safetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
 ];
 
+const analysisSchema = {
+  type: Type.OBJECT,
+  properties: {
+    statementPeriod: { 
+      type: Type.STRING,
+      description: "The date range of the statement, or the 'as of' date.",
+    },
+    openingBalance: { 
+      type: Type.NUMBER,
+      description: "The starting balance of the account for the period.",
+    },
+    closingBalance: { 
+      type: Type.NUMBER,
+      description: "The final ending balance of the account for the period.",
+    },
+    transactions: {
+      type: Type.ARRAY,
+      description: "A comprehensive list of every transaction within the period.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          date: { 
+            type: Type.STRING,
+            description: "Transaction date in YYYY-MM-DD format.",
+          },
+          amount: { 
+            type: Type.NUMBER,
+            description: "The positive value of the transaction.",
+          },
+          type: { 
+            type: Type.STRING,
+            description: "Either 'credit' for money in, or 'debit' for money out.",
+          },
+          clientName: { 
+            type: Type.STRING,
+            description: "The standardized name of the client, merchant, or payee after consolidation rules are applied.",
+          },
+        },
+        required: ['date', 'amount', 'type', 'clientName'],
+      },
+    },
+  },
+  required: ['statementPeriod', 'openingBalance', 'closingBalance', 'transactions'],
+};
+
+
 /**
  * Sends the bank statement text to the Gemini API for analysis and normalization.
- * Streams the response back chunk by chunk for a more responsive UI.
  * @param statementText The raw text from the bank statement.
  * @param apiKey The user-provided Gemini API key.
- * @param onChunk A callback function that receives raw text chunks as they arrive from the API.
  * @returns A promise that resolves to the final, parsed analysis result.
  */
 export const analyzeStatement = async (
   statementText: string,
-  apiKey: string,
-  onChunk: (chunk: string) => void
+  apiKey: string
 ): Promise<AnalysisResult> => {
   console.log("[analyzeStatement] Function called.");
   if (!statementText) {
@@ -38,51 +81,41 @@ export const analyzeStatement = async (
 
   const ai = new GoogleGenAI({ apiKey });
 
-  const prompt = `Your primary objective is to perform a meticulous and comprehensive financial analysis of the provided bank statement text. The final output must be a single JSON object, and it is imperative that the extracted transaction data is complete and accurate, such that the statement balances perfectly.
+  const prompt = `Your sole task is to act as an expert financial data extractor. Analyze the provided bank statement text and populate a JSON object according to the exact schema provided.
 
-**Core Requirement: Balance Verification**
-The extracted data MUST satisfy the following equation:
-\`Opening Balance + Sum of all Credits - Sum of all Debits = Closing Balance\`
-Before finalizing the JSON output, you must internally verify this equation. If it does not balance, you MUST re-analyze the statement to find any missed or miscategorized transactions until the equation holds true. This is the most critical instruction.
+**CRITICAL MANDATE: Perfect Balance Verification**
+This is your most important instruction. Before outputting the final JSON, you MUST internally perform this calculation:
+\`Opening Balance + Sum(all Credits) - Sum(all Debits) = Closing Balance\`
 
-**Extraction Tasks:**
+*   **Step 1: Preliminary Extraction**. Extract the opening balance, closing balance, and every single transaction line. Do not miss any, especially small bank fees or charges like "Standing Order Charges".
+*   **Step 2: Internal Calculation**. Sum all extracted credit amounts and all extracted debit amounts.
+*   **Step 3: Verification**. Apply the formula.
+*   **Step 4: Self-Correction (Crucial)**. If the balance does not match, DO NOT output the JSON. Instead, re-read the original statement text meticulously. Look for transactions you missed, numbers you misinterpreted (e.g., \`1,500.00\` vs \`1500.00\`), or items you misclassified. Repeat the process until the equation is perfectly satisfied.
+*   **Step 5: Final Output**. Only after the balance is verified, generate the final JSON.
 
-1.  **Extract Key Financial Headers**:
-    *   \`statementPeriod\`: The date range covered by the statement.
-    *   \`openingBalance\`: The starting balance for the period.
-    *   \`closingBalance\`: The final ending balance for the period.
+**Data Extraction & Normalization Rules:**
 
-2.  **Extract, Normalize, and Consolidate ALL Transactions**:
-    *   Identify and extract EVERY single transaction that impacts the balance. This includes, but is not limited to:
-        *   Customer payments (deposits, transfers in).
-        *   Withdrawals and payments made by the account holder.
-        *   **All bank-related fees**: service charges, monthly fees, transfer fees, processing fees, etc.
-        *   **Government charges**: taxes, levies, duties.
-        *   **Interest payments**: both credited and debited.
-    *   For each transaction, determine the following:
-        *   \`date\`: Transaction date in YYYY-MM-DD format.
-        *   \`amount\`: The positive value of the transaction.
-        *   \`type\`: Must be either 'credit' (money in) or 'debit' (money out).
-        *   \`clientName\`: The associated person, company, or a clear description of the transaction.
+1.  **Header Fields**:
+    *   \`statementPeriod\`: The "as of" date or date range.
+    *   \`openingBalance\` / \`closingBalance\`: The start and end balances.
 
-3.  **Advanced Client Name Consolidation (CRITICAL)**:
-    *   Your second most important task is to merge variations of the same client name into a single, consistent identifier.
-    *   **Step 1: Strip Titles**. Before comparing, remove titles like "Mr", "Mrs", "Miss", "M/s", "Dr". The final consolidated name MUST NOT include these titles.
-    *   **Step 2: Normalize**. Ignore case, punctuation, and word order to identify matches.
-    *   **Step 3: Consolidate**. Group clients by their core name components. Always use the most complete version of the name as the final identifier.
-    *   **Examples**:
-        *   "Mr muhammud Salman Muddhoo" and "Muhammud Salman Muddhoo" consolidate to "Muhammud Salman Muddhoo".
-        *   "Muhammud Salman", "MUHAMMUD SALMAN MUDDHOO", and "Mr muddhoo salman" consolidate to "Muhammud Salman Muddhoo".
-        *   "J. Doe" and "John Doe" consolidate to "John Doe".
-    *   For generic transactions (e.g., "Monthly Service Fee", "Interest Paid"), use that exact description as the \`clientName\`. Do not attempt to group these with personal names.
+2.  **Transactions Array**:
+    *   \`date\`: Convert 'DD-Mon-YYYY' from the 'Transaction Date' column to 'YYYY-MM-DD'.
+    *   \`type\`: Set to 'credit' if the amount is in the Credit column, 'debit' if in the Debit column.
+    *   \`amount\`: The positive numeric value.
+    *   \`clientName\`: Consolidate this field using the following strict rules:
+        *   **Standardize Name**: Always remove prefixes like "Mr", "Mrs", "Miss". "MUHAMMUD SALMAN MUDDHOO" and "Mr Muhammud Salman Muddhoo" MUST become "Muhammud Salman Muddhoo".
+        *   **Alias/Variation Consolidation**: When you encounter names that likely refer to the same person, consolidate them to the most complete version. For example, if you see transactions for both "Muhammud Salman" and "Muhammud Salman Muddhoo", you MUST standardize both to "Muhammud Salman Muddhoo". Apply this logic to similar cases where a partial name and a more complete name appear for what is clearly the same entity.
+        *   **Identify Merchant/Payee**:
+            *   For "Debit Card Purchase": The client is the merchant name that follows. Ex: "Debit Card Purchase WINNER'S" -> "WINNER'S". Consolidate "WINNERS-ST PIERRE" to "WINNER'S".
+            *   For "JUICE Transfer", "Credit Card Transfer", etc.: The name is typically at the end of the line. Ex: "JUICE Transfer Umrah MRS R BOH BOOLAKY-MUDDHOO" -> "R BOH BOOLAKY-MUDDHOO".
+            *   For "Standing Order": The client is the entity named in the description. Ex: "Standing Order... THE EDUCATION TRUST" -> "THE EDUCATION TRUST".
+        *   **Categorize Fees**: Generic bank charges should be categorized. Ex: "Standing Order Charges" -> "Bank Charges". "MCB Juice Payment Central Electricity Board" -> "Central Electricity Board".
 
-**Final Output Instructions**:
-*   The entire output must be a single, valid JSON object that strictly follows the provided schema.
-*   The list of transactions must be exhaustive.
-*   The client names within the \`transactions\` array must be the final, standardized versions.
-*   If a value isn't found, use 0 for numeric fields and an empty string for text fields.
+**JSON Output Format:**
+The output MUST be a single, valid JSON object that conforms to the schema. Do not include any other text, explanations, or markdown formatting like \`\`\`json.
 
-**Bank Statement Text:**
+**Bank Statement Text to Analyze:**
 ---
 ${statementText}
 ---`;
@@ -90,51 +123,56 @@ ${statementText}
   console.log("[analyzeStatement] Constructed prompt for Gemini:", { promptLength: prompt.length });
 
   try {
-    console.info("[analyzeStatement] Sending request to Gemini API (streaming)...");
-    const response = await ai.models.generateContentStream({
+    console.info("[analyzeStatement] Sending request to Gemini API (non-streaming in JSON mode)...");
+    const response = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: prompt,
       config: {
-        safetySettings
+        safetySettings,
+        responseMimeType: "application/json",
+        responseSchema: analysisSchema,
+        // Add token limits to prevent truncation on large statements, which can cause JSON parsing errors.
+        maxOutputTokens: 8192,
+        thinkingConfig: { thinkingBudget: 1024 },
       },
     });
 
-    let jsonStr = '';
-    for await (const chunk of response) {
-      const chunkText = chunk.text;
-      if (chunkText) {
-        jsonStr += chunkText;
-        onChunk(chunkText);
-      }
-    }
+    let jsonStr = response.text;
     
-    console.info("[analyzeStatement] Received full JSON string from stream:", jsonStr);
+    console.info("[analyzeStatement] Received full JSON string from AI.");
 
     if (!jsonStr) {
       throw new Error("Received an empty response from the AI. The statement might not contain recognizable data.");
     }
     
-    // Sanitize the response: sometimes the model wraps it in ```json ... ``` or includes other text
-    const jsonMatch = jsonStr.match(/```json\s*([\s\S]*?)\s*```|({[\s\S]*})/);
-    const sanitizedJsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[2]).trim() : '';
+    // With JSON mode, the response should be a valid JSON string directly.
+    // As a safeguard, we try to extract from markdown fences in case the model wraps the output.
+    const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (jsonMatch && jsonMatch[1]) {
+      console.log("[analyzeStatement] Extracted JSON from markdown block.");
+      jsonStr = jsonMatch[1];
+    }
+    
+    const sanitizedJsonStr = jsonStr.trim();
     
     if (!sanitizedJsonStr) {
-        console.error("Could not find a valid JSON object in the AI's response.", jsonStr);
-        throw new Error("The AI returned a response, but it did not contain a valid JSON object.");
+        console.error("The AI's response was empty after trimming.", jsonStr);
+        throw new Error("The AI returned an empty response.");
     }
 
     const parsedResult = JSON.parse(sanitizedJsonStr);
-    console.info("[analyzeStatement] Parsed analysis result:", parsedResult);
+    console.info("[analyzeStatement] Successfully parsed analysis result.");
     return parsedResult;
 
   } catch (error) {
-    console.error("[analyzeStatement] Error calling Gemini API:", error);
+    console.error("[analyzeStatement] Error during AI analysis:", error);
     const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
     if (errorMessage.includes('API key not valid')) {
         throw new Error('API key not valid. Please check your key and try again.');
     }
-    if (errorMessage.includes('json') || errorMessage.includes('JSON')) {
-        throw new Error('The AI returned an invalid format. Please try again or adjust the statement text.');
+    // Provide a more specific error for JSON parsing issues, which often stem from large/complex statements.
+    if (error instanceof SyntaxError || (errorMessage.includes('json') || errorMessage.includes('JSON'))) {
+        throw new Error('The AI returned an invalid format. This can happen with large or complex statements that exceed the model\'s output limit. Please try again.');
     }
     throw new Error(`Failed to analyze statement: ${errorMessage}`);
   }
