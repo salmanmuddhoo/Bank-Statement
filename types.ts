@@ -46,5 +46,6 @@ export interface PaymentStatus {
   paidAmount: number;
   status: 'Paid' | 'Not Paid' | 'Partial Payment' | 'Payment Exceeded';
   difference: number;
+  paymentDate?: string;
   [key: string]: any; // To allow for additional data from expected payments
 }

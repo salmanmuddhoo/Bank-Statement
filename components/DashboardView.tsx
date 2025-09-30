@@ -85,6 +85,21 @@ const DashboardView: React.FC<DashboardViewProps> = ({ analysisResult, paymentSt
         if (statusFilter === 'All') return paymentStatuses;
         return paymentStatuses.filter(s => s.status === statusFilter);
     }, [paymentStatuses, statusFilter]);
+    
+    const paymentProgress = useMemo(() => {
+        if (!paymentStatuses || paymentStatuses.length === 0) {
+            return null;
+        }
+        const totalReceived = paymentStatuses.reduce((acc, curr) => acc + curr.paidAmount, 0);
+        const totalExpected = paymentStatuses.reduce((acc, curr) => acc + curr.expectedAmount, 0);
+        const progressPercentage = totalExpected > 0 ? (totalReceived / totalExpected) * 100 : 0;
+
+        return {
+            totalReceived,
+            totalExpected,
+            progressPercentage,
+        };
+    }, [paymentStatuses]);
 
     const dashboardData = useMemo(() => {
         if (!analysisResult) return null;
@@ -190,6 +205,41 @@ const DashboardView: React.FC<DashboardViewProps> = ({ analysisResult, paymentSt
                         <StatusFilterCard title="Payment Exceeded" count={statusCounts.exceeded} icon={<PlusCircle className="w-6 h-6 text-sky-500 dark:text-sky-400" />} isActive={statusFilter === 'Payment Exceeded'} onClick={() => setStatusFilter('Payment Exceeded')} activeClasses="bg-sky-500/20 border-sky-500 dark:bg-sky-500/20 dark:border-sky-500 focus:ring-sky-500" />
                         <StatusFilterCard title="Not Paid" count={statusCounts.notPaid} icon={<XCircle className="w-6 h-6 text-red-500 dark:text-red-400" />} isActive={statusFilter === 'Not Paid'} onClick={() => setStatusFilter('Not Paid')} activeClasses="bg-red-500/20 border-red-500 dark:bg-red-500/20 dark:border-red-500 focus:ring-red-500" />
                     </div>
+
+                    {/* Overall Payment Progress */}
+                    {paymentProgress && (
+                        <div className="bg-white dark:bg-slate-900/50 backdrop-blur-xl border border-slate-200 dark:border-white/10 rounded-2xl p-6 shadow-xl">
+                            <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100 mb-4">
+                                Overall Payment Progress
+                            </h2>
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-baseline">
+                                    <span className="font-medium text-slate-700 dark:text-slate-300">
+                                        Total Received: <span className="font-mono text-green-600 dark:text-green-400">{formatCurrency(paymentProgress.totalReceived)}</span>
+                                    </span>
+                                    <span className="text-sm text-slate-500 dark:text-slate-400">
+                                        Expected: <span className="font-mono">{formatCurrency(paymentProgress.totalExpected)}</span>
+                                    </span>
+                                </div>
+                                <div className="w-full bg-slate-200 dark:bg-slate-700/50 rounded-full h-4 relative overflow-hidden">
+                                    <div
+                                        className="bg-sky-500 h-4 rounded-full transition-all duration-500 ease-out"
+                                        style={{ width: `${Math.min(paymentProgress.progressPercentage, 100)}%` }}
+                                    ></div>
+                                    {paymentProgress.progressPercentage > 100 && (
+                                        <div
+                                            className="absolute top-0 bg-yellow-400 h-4 rounded-r-full"
+                                            style={{ left: '100%', width: `${paymentProgress.progressPercentage - 100}%` }}
+                                        ></div>
+                                    )}
+                                     <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white z-10" style={{ textShadow: '0 0 3px rgba(0,0,0,0.5)' }}>
+                                        {paymentProgress.progressPercentage.toFixed(1)}%
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     {filteredPaymentStatuses && <PaymentStatusTable statuses={filteredPaymentStatuses} activeFilter={statusFilter} />}
                 </div>
             )}
@@ -214,7 +264,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ analysisResult, paymentSt
                                     className={`absolute top-0 h-full rounded-full ${trend.netChange >= 0 ? 'bg-green-500/80 left-1/2' : 'bg-red-500/80 right-1/2'}`}
                                     style={{ width: `${(Math.abs(trend.netChange) / maxNetChange) * 50}%` }}
                                 ></div>
-                                <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white z-10">{formatCurrency(trend.netChange)}</span>
+                                <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-slate-800 dark:text-white z-10">{formatCurrency(trend.netChange)}</span>
                             </div>
                         </div>
                     ))}

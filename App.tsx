@@ -4,7 +4,6 @@
 */
 
 import React, { useState, useEffect } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
 import * as XLSX from 'xlsx';
 import { AnalysisResult, ClientTransaction, ClientSummary, ClientMonthlyTrend, ExpectedPayment, PaymentStatus } from './types.ts';
 import { analyzeStatement } from './services/geminiService.ts';
@@ -16,16 +15,6 @@ import AnalysisProgress from './components/AnalysisProgress.tsx';
 import ResultsDisplay from './components/ResultsDisplay.tsx';
 import NavigationView from './components/NavigationView.tsx';
 import DashboardView from './components/DashboardView.tsx';
-
-// Configure the PDF.js worker source from a CDN, with a safeguard
-if (pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@4.5.136/build/pdf.worker.mjs`;
-}
-
-
-interface PdfTextItem {
-  str: string;
-}
 
 const App: React.FC = () => {
   const [apiKey, setApiKey] = useState<string>('');
@@ -160,15 +149,35 @@ const App: React.FC = () => {
     return { summaries, trends };
   }
 
-  const reconcilePayments = (summaries: ClientSummary[], expected: ExpectedPayment[]): PaymentStatus[] => {
-    console.log('[App] Starting payment reconciliation...');
-    const summaryMap = new Map<string, ClientSummary>();
-    summaries.forEach(s => summaryMap.set(s.clientName.toLowerCase().trim(), s));
+  const reconcilePayments = (transactions: ClientTransaction[], expected: ExpectedPayment[]): PaymentStatus[] => {
+    console.log('[App] Starting payment reconciliation with transaction data...');
   
+    const paymentInfoMap = new Map<string, { paidAmount: number; lastPaymentDate: string }>();
+    
+    // First, aggregate payment information from all credit transactions
+    transactions
+      .filter(t => t.type === 'credit' && t.date)
+      .forEach(t => {
+        const clientNameLower = t.clientName.toLowerCase().trim();
+        const existing = paymentInfoMap.get(clientNameLower) || { paidAmount: 0, lastPaymentDate: '' };
+        
+        existing.paidAmount += t.amount;
+        
+        // Use the most recent date as the payment date
+        if (!existing.lastPaymentDate || t.date > existing.lastPaymentDate) {
+          existing.lastPaymentDate = t.date;
+        }
+        
+        paymentInfoMap.set(clientNameLower, existing);
+      });
+
+    // Now, create the status report based on expected payments
     const statuses: PaymentStatus[] = expected.map(exp => {
       const clientNameLower = exp.clientName.toLowerCase().trim();
-      const summary = summaryMap.get(clientNameLower);
-      const paidAmount = summary?.totalCredit ?? 0;
+      const paymentInfo = paymentInfoMap.get(clientNameLower);
+      
+      const paidAmount = paymentInfo?.paidAmount ?? 0;
+      const paymentDate = paymentInfo?.lastPaymentDate; // This will be undefined if no payment was found
       const difference = paidAmount - exp.amount;
   
       let status: PaymentStatus['status'];
@@ -191,6 +200,7 @@ const App: React.FC = () => {
         paidAmount,
         status,
         difference,
+        paymentDate, // Add the payment date here
       };
     });
     
@@ -254,8 +264,8 @@ const App: React.FC = () => {
       setClientSummaries(summaries);
       setMonthlyTrends(trends);
 
-      if (expectedPayments && summaries.length > 0) {
-        const statuses = reconcilePayments(summaries, expectedPayments);
+      if (expectedPayments && result.transactions.length > 0) {
+        const statuses = reconcilePayments(result.transactions, expectedPayments);
         setPaymentStatuses(statuses);
       }
   
@@ -300,18 +310,6 @@ const App: React.FC = () => {
       const reader = new FileReader();
       const fileNameLower = file.name.toLowerCase();
   
-      const parsePdf = async (fileData: ArrayBuffer) => {
-        const typedArray = new Uint8Array(fileData);
-        const pdf = await pdfjsLib.getDocument(typedArray).promise;
-        let fullText = '';
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          fullText += textContent.items.map(item => (item as PdfTextItem).str).join(' ') + '\n\n';
-        }
-        return fullText;
-      };
-
       const parseExcel = (fileData: ArrayBuffer) => {
         const workbook = XLSX.read(fileData, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
@@ -322,10 +320,7 @@ const App: React.FC = () => {
 
       try {
         console.log(`[App] Starting to parse file '${file.name}'.`);
-        if (file.type === 'application/pdf') {
-          const fileData = await file.arrayBuffer();
-          setStatementText(await parsePdf(fileData));
-        } else if (file.type === 'text/csv' || fileNameLower.endsWith('.csv')) {
+        if (file.type === 'text/csv' || fileNameLower.endsWith('.csv')) {
           setStatementText(await file.text());
         } else if (
           fileNameLower.endsWith('.xls') || fileNameLower.endsWith('.xlsx') ||
@@ -335,7 +330,7 @@ const App: React.FC = () => {
           const fileData = await file.arrayBuffer();
           setStatementText(parseExcel(fileData));
         } else {
-          throw new Error('Unsupported file type. Please upload a PDF, CSV, or Excel file.');
+          throw new Error('Unsupported file type. Please upload a CSV, or Excel file.');
         }
         console.log(`[App] Successfully parsed file '${file.name}'.`);
       } catch (err) {

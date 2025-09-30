@@ -139,17 +139,43 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({
     XLSX.writeFile(wb, filename);
   };
   
-  const exportSummaryToCSV = () => {
-    console.log("[ResultsDisplay] Exporting client summary to CSV.");
-    const dataToExport = filteredClientSummaries.map(s => ({
-        "Client Name": s.clientName,
-        "Total Credit": s.totalCredit,
-        "Credit Count": s.creditCount,
-        "Total Debit": s.totalDebit,
-        "Debit Count": s.debitCount,
-        "Net Total": s.netTotal,
-    }));
-    exportToCSV(dataToExport, 'client_summary.csv');
+  const exportSummaryToCSV = (type: 'full' | 'credits' | 'debits') => {
+    console.log(`[ResultsDisplay] Exporting client summary (${type}) to CSV.`);
+    let dataToExport;
+    let filename: string;
+
+    switch (type) {
+      case 'credits':
+        dataToExport = filteredClientSummaries.map(s => ({
+          "Client Name": s.clientName,
+          "Total Credit": s.totalCredit,
+          "Credit Count": s.creditCount,
+        }));
+        filename = 'client_summary_credits.csv';
+        break;
+      case 'debits':
+        dataToExport = filteredClientSummaries.map(s => ({
+          "Client Name": s.clientName,
+          "Total Debit": s.totalDebit,
+          "Debit Count": s.debitCount,
+        }));
+        filename = 'client_summary_debits.csv';
+        break;
+      case 'full':
+      default:
+        dataToExport = filteredClientSummaries.map(s => ({
+          "Client Name": s.clientName,
+          "Total Credit": s.totalCredit,
+          "Credit Count": s.creditCount,
+          "Total Debit": s.totalDebit,
+          "Debit Count": s.debitCount,
+          "Net Total": s.netTotal,
+        }));
+        filename = 'client_summary_full.csv';
+        break;
+    }
+    
+    exportToCSV(dataToExport, filename);
   };
 
   const exportTrendsToCSV = () => {

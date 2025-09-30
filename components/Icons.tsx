@@ -27,6 +27,12 @@ export const Download: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   </Icon>
 );
 
+export const ChevronDown: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+    <Icon {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </Icon>
+);
+
 export const Loader2: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
   <Icon {...props}>
     <path d="M21 12a9 9 0 1 1-6.219-8.56" />

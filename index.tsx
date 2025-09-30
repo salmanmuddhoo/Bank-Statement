@@ -1,4 +1,3 @@
-import './index.css';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0

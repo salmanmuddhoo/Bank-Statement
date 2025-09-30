@@ -72,8 +72,8 @@ const StatementInput: React.FC<StatementInputProps> = ({
                   <label htmlFor="file-upload" className="cursor-pointer inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-sky-600 hover:bg-sky-700">
                     <UploadCloud className="w-5 h-5 mr-3" /> Upload Statement
                   </label>
-                  <input id="file-upload" type="file" className="hidden" accept=".pdf,.csv,.xls,.xlsx" onChange={handleFileChange} />
-                  <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">Supports PDF, CSV, XLS, XLSX</p>
+                  <input id="file-upload" type="file" className="hidden" accept=".csv,.xls,.xlsx" onChange={handleFileChange} />
+                  <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">Supports CSV, XLS, XLSX</p>
                 </>
               )}
             </div>
